@@ -1,6 +1,19 @@
 import math
+from functools import reduce
 import numpy as np
+from scipy import signal
 from scipy.stats import qmc
+from dataclasses import dataclass
+from typing import Iterable
+
+@dataclass
+class BitmapSubimage:
+    bitmap: np.ndarray
+    imsize: Iterable
+    Hx: float = .0
+    Hy: float = .0
+    def __post_init__(self):
+        self.pixel_pitch = [h/N for h, N in zip(self.imsize,np.shape(self.bitmap)[:2])]
 
 def poisson_pupil_sampling(
         density: int=16, 
@@ -53,3 +66,42 @@ def gpsf(
         bins = gpsf_edges
     )
     return gpsf.T, gpsf_edges
+
+def _common_support(supports):
+    cs = reduce(
+        lambda x, y: np.where(np.abs(x)>np.abs(y),x,y),
+        [[x for rng in sup for x in rng] for sup in supports])
+    return [cs[0:2], cs[2:4]]
+
+def _geom_sim_channel(
+    lens: object,
+    obj: BitmapSubimage,
+    L: float,
+    i_wave: int = 0,
+    Px: np.ndarray = None, 
+    Py: np.ndarray = None, 
+):
+    if Px is None or Py is None:
+        Px, Py = poisson_pupil_sampling()
+    tra_x, tra_y = lens.TRA(Px, Py, L, i_wave, obj.Hx, obj.Hy)
+    support = gpsf_pixel_support(tra_x, tra_y, obj.pixel_pitch)
+    gpsf, _ = gpsf(tra_x, tra_y, support, obj.pixel_pitch)
+    img = signal.fftconvolve(obj.bitmap, gpsf, mode='same')
+    return np.tensordot(img, lens.rgb(i_wave), axes=0), support
+
+def geom_sim_bw_to_rgb(
+    lens: object,
+    obj: BitmapSubimage,
+    L: float,
+    Px: np.ndarray = None, 
+    Py: np.ndarray = None, 
+):
+    waves = lens.spectrum.waves
+    imgs = []
+    gpsf_supports = []
+    for iw in range(len(waves)):
+        img, sup = _geom_sim_channel(lens, obj, L, iw, Px, Py)
+        imgs.append(img)
+        gpsf_supports.append(sup)
+    cimg = reduce(np.add, imgs)
+    return cimg/np.max(cimg), gpsf_supports

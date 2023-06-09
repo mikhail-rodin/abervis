@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 import numpy as np
 
+from .color import wavelength_to_rgb
+
 def Chi(waves, i_primary=-1):
     # def: (2.22) p.31 in Rodionov, '82
     if len(waves) < 2:
@@ -32,6 +34,19 @@ def Wc_coefs(
         0.5*axcl2*NAsq, # Wc220
         0.25*(zcl2-axcl2) # Wc240
     )
+
+class Spectrum:
+    def __init__(self, waves, i_primary=0):
+        self.waves = waves
+        self.i_primary = i_primary
+        self.primary = waves[i_primary]
+        self.Chis = Chi(waves, i_primary)
+        self.rgb = [wavelength_to_rgb(w)
+                    for w in waves]
+    def Chi(self, i_wave):
+        return self.Chis[i_wave]
+    def rgb(self, i_wave):
+        return self.rgb[i_wave]
 
 @dataclass
 class Seidel():
@@ -72,8 +87,8 @@ def W4(Px: np.ndarray,Py: np.ndarray, Hx=0.0, Hy=0.0, Chi=0.0,
     return (
         (Wc120*Chi + Wc220*Chi*Chi + Wd)*Psq
         + (Wc140*Chi + Wc240*Chi*Chi - .125*S1)*Psq*Psq
-        - .5*S2*Hy*Py*Psq
-        - .25*(3*S3+S4)*Hy*Hx*Psq
+        - .5*S2*(Hx*Px + Hy*Py)*Psq
+        - .25*(3*S3+S4)*(Hx*Hx+Hy*Hy)*Psq
     )
 
 def TRA(Px: np.ndarray, Py: np.ndarray, Hx=0.0, Hy=0.0, Chi=0.0,

@@ -1,7 +1,8 @@
 from dataclasses import dataclass 
+import math
 import numpy as np
 
-from .lensmodel import W4, TRA, Seidel
+from .lensmodel import W4, TRA, Seidel, Spectrum
         
 def z_defocus(f_, A, L, HHx=0.0, HHy=0.0):
     z_x = -f_**2/(HHx+2*f_-L)
@@ -55,16 +56,21 @@ class AnamorphicParaxial():
     HHx: float = 0
     HHy: float = 0
     p_: float = 1
-    D: float = 1
+    D_: float = 1
 
 class AnamorphicLens:
     def __init__(self, 
                  parax: AnamorphicParaxial,
+                 spectrum: Spectrum ,
                  RSOS_aber: Seidel = None,
                  Y_aber: Seidel = None,
                  ) -> None:
         self.parax = parax
-        self.NA = self.parax.D/(2*self.parax.f_)
+        self.spectrum = spectrum
+        # non-localized entrance pupil
+        # so we use EXP pos and dia for aperture
+        tan_A = self.parax.D_/(2*self.parax.p_)
+        self.NA = math.sin(math.atan(tan_A))
         self.RSOS_aber = RSOS_aber
         self.Y_aber = Y_aber
     def _z_defocus(self,L):
@@ -78,11 +84,12 @@ class AnamorphicLens:
         return z_x, z_x - z_y
     def CdCa(self, L):
         z_x, dz_ = self._z_defocus(L)
-        return CdCa(self.parax.D, z_x, dz_, self.parax.p_)
+        return CdCa(self.parax.D_, z_x, dz_, self.parax.p_)
     def WdWa(self, L):
         z_x, dz_ = self._z_defocus(L)
         return WdWa(self.parax.p_, self.NA, z_x, dz_)
-    def W(self, Px, Py, L, Chi=.0, Hx=.0, Hy=.0):
+    def W(self, Px, Py, L, i_wave=0, Hx=.0, Hy=.0):
+        Chi = self.spectrum.Chi(i_wave)
         Wd, Wa = self.WdWa(L)
         return W4(
             Px, Py, Hx, Hy, Chi, Wd,
@@ -91,7 +98,8 @@ class AnamorphicLens:
             Py, Hx, Hy, Chi, Wa,
             *self.Y_aber.W_coeffs(self.NA)
             )
-    def TRA(self, Px, Py, L, Chi=.0, Hx=.0, Hy=.0):
+    def TRA(self, Px, Py, L, i_wave=0, Hx=.0, Hy=.0):
+        Chi = self.spectrum.Chi(i_wave)
         Cd, Ca = self.WdWa(L)
         p_ = self.parax.p_
         tra_x, tra_y = TRA(
@@ -101,3 +109,5 @@ class AnamorphicLens:
             Py, Hx, Hy, Chi, Ca,
             *self.Y_aber.TRA_coeffs(self.NA, p_))
         return tra_x, tra_y
+    def rgb(self, i_wave):
+        return self.spectrum.rgb[i_wave]
